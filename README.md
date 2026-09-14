@@ -11,6 +11,12 @@ no backend, nothing is uploaded, and the site is a pile of static files.
 - **Live conversion.** The WAT you type is assembled and run through `wasm2c`
   on every edit (debounced, off the main thread). The generated `.c` and `.h`
   appear beside it.
+- **Focus on your module.** About 95% of what wasm2c emits is fixed runtime
+  scaffolding — an empty module produces 758 of the 787 lines you get for a
+  three-line `add`. The playground folds those runs behind labelled
+  placeholders (`⋯ 725 lines — wasm2c runtime declarations`), so a small module
+  fits on one screen. Line numbers stay real, any block expands on click, and
+  Copy and Download always give you the complete file.
 - **Real diagnostics.** wabt's own error output, carets and all, with the
   offending range underlined in the editor. A broken edit doesn't wipe out the
   C you were reading — it's dimmed and marked stale until the module parses
@@ -87,6 +93,16 @@ The conversion mirrors the `wasm2c` tool exactly: the WAT is assembled to a
 binary first, then read back as IR, so the output matches what you would get
 from `wat2wasm foo.wat && wasm2c foo.wasm` rather than taking a shortcut
 through the text-format IR.
+
+### Finding the scaffolding
+
+wabt keeps its C boilerplate in `src/template/` and pastes each blob into the
+output unmodified (`Write(s_source_declarations, ...)`). The bindings export
+those exact strings, so `src/core/boilerplate.ts` locates them with a plain
+substring match — no parsing, no heuristics, and nothing to keep in sync,
+because the templates and the converter come from the same build. Blocks that
+wasm2c only emits for some modules, like the SIMD and atomics helpers, are
+found the same way when they appear.
 
 ## Licence
 

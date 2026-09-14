@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,16 @@
 #include "wabt/validator.h"
 #include "wabt/wast-lexer.h"
 #include "wabt/wast-parser.h"
+
+// The verbatim blocks wasm2c pastes into its output. c-writer.cc declares
+// these in the global namespace and writes them unmodified, so the playground
+// can locate them in the generated text and offer to fold them away.
+extern const char* s_header_top;
+extern const char* s_header_bottom;
+extern const char* s_source_includes;
+extern const char* s_source_declarations;
+extern const char* s_simd_source_declarations;
+extern const char* s_atomicops_source_declarations;
 
 using namespace wabt;
 
@@ -322,6 +333,37 @@ const uint8_t* w2c_wasm_data() {
 EMSCRIPTEN_KEEPALIVE
 int w2c_wasm_size() {
   return static_cast<int>(g_result.wasm.size());
+}
+
+/*
+ * The boilerplate templates, as `name\n<byte length>\n<text>` records. The
+ * caller matches these against the generated files to find what is scaffolding
+ * rather than module code. Lengths are explicit because the blocks contain
+ * newlines.
+ */
+EMSCRIPTEN_KEEPALIVE
+const char* w2c_templates() {
+  static const std::string kTemplates = []() {
+    const std::pair<const char*, const char*> blocks[] = {
+        {"source-includes", s_source_includes},
+        {"source-declarations", s_source_declarations},
+        {"simd-declarations", s_simd_source_declarations},
+        {"atomics-declarations", s_atomicops_source_declarations},
+        {"header-top", s_header_top},
+        {"header-bottom", s_header_bottom},
+    };
+    std::string out;
+    for (const auto& [name, text] : blocks) {
+      const std::string body = text ? text : "";
+      out += name;
+      out += '\n';
+      out += std::to_string(body.size());
+      out += '\n';
+      out += body;
+    }
+    return out;
+  }();
+  return kTemplates.c_str();
 }
 
 // Every feature wabt knows about, one per line as

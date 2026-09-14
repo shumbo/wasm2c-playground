@@ -22,6 +22,7 @@ export interface Wasm2cWasmModule {
   _w2c_wasm_data(): number;
   _w2c_wasm_size(): number;
   _w2c_all_features(): number;
+  _w2c_templates(): number;
 
   UTF8ToString(ptr: number, maxBytesToRead?: number): string;
 }

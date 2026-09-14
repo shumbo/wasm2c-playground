@@ -11,9 +11,22 @@ export interface Wasm2cOptions {
   debugNames: boolean;
 }
 
+/** A run of lines in a generated file, 1-based and inclusive at both ends. */
+export interface LineRange {
+  from: number;
+  to: number;
+  /** Short human label, e.g. "wasm2c runtime declarations". */
+  label: string;
+}
+
 export interface OutputFile {
   name: string;
   text: string;
+  /**
+   * Where wasm2c pasted its fixed scaffolding. Every module gets the same
+   * bytes here, so the UI can fold them away and leave the module's own code.
+   */
+  boilerplate: LineRange[];
 }
 
 export interface FeatureInfo {

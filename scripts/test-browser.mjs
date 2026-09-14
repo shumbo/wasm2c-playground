@@ -52,7 +52,7 @@ const page = await context.newPage();
 // of a 4000-line file. The copy button puts the whole document on the
 // clipboard, which is also the path a user takes.
 const outputText = async (p = page) => {
-  await p.locator('.pane__actions .button--icon').first().click();
+  await p.locator('button[aria-label="Copy to clipboard"]').click();
   return p.evaluate(() => navigator.clipboard.readText());
 };
 
@@ -82,9 +82,34 @@ check('C output includes the generated header', cOutput.includes('#include "modu
 check('C output is the full file, not just the viewport', cOutput.split('\n').length > 500, `${cOutput.split('\n').length} lines`);
 
 const status = await page.locator('.statusbar__state').innerText();
-check('status bar reports size and timing', /\d+ lines/.test(status) && /ms/.test(status), status);
+check('status bar reports size and timing', /\d+ (module )?lines/.test(status) && /ms/.test(status), status);
 
 await shot(page, 'light.png');
+
+// Focus mode: the scaffolding folds away behind placeholders.
+const folds = await page.locator('.fold-placeholder').allTextContents();
+check('scaffolding is folded by default', folds.length === 2, folds.join(' | '));
+check('placeholder names the runtime declarations', folds.some((f) => /wasm2c runtime declarations/.test(f)), folds.join(' | '));
+check('placeholder counts the hidden lines', folds.some((f) => /7\d\d lines/.test(f)), folds.join(' | '));
+const visibleLines = await page.locator('.editor').nth(1).locator('.cm-line').count();
+check('focused view is short enough to read', visibleLines < 80, `${visibleLines} rendered lines`);
+check('status bar reports the split', /module lines .*scaffolding hidden/.test(await page.locator('.statusbar__state').innerText()));
+check('copy still yields the whole file', (await outputText()).split('\n').length > 700);
+
+// Expanding one placeholder restores its lines.
+await page.locator('.fold-placeholder', { hasText: 'runtime declarations' }).click();
+await page.waitForTimeout(150);
+check('clicking a placeholder expands it', await page.locator('.fold-placeholder').count() === 1);
+
+// The toggle turns the whole thing off and back on.
+const focusToggle = page.locator('button[aria-label="Hide wasm2c scaffolding"]');
+await focusToggle.click();
+await page.waitForTimeout(150);
+check('toggle shows the full file', await page.locator('.fold-placeholder').count() === 0);
+await focusToggle.click();
+await page.waitForTimeout(150);
+check('toggle folds it back', await page.locator('.fold-placeholder').count() === 2);
+await shot(page, 'focus.png');
 
 // Switch to the .h tab.
 await page.locator('.tab', { hasText: 'module.h' }).click();

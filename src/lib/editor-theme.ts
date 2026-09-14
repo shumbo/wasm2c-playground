@@ -76,10 +76,13 @@ export const editorTheme = EditorView.theme({
     textUnderlineOffset: '3px',
   },
   '.cm-lint-marker-error': { content: 'none' },
+  // The fold placeholder is styled by class in styles.css so it can react to
+  // the theme without reconfiguring the editor.
   '.cm-foldPlaceholder': {
-    backgroundColor: 'var(--surface-sunken)',
-    border: '1px solid var(--border)',
-    color: 'var(--text-muted)',
+    background: 'none',
+    border: 'none',
+    color: 'inherit',
+    padding: 0,
   },
 });
 

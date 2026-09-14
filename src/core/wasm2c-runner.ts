@@ -1,6 +1,7 @@
 import createWasm2c from './wasm2c.js';
 import type { Wasm2cWasmModule } from './wasm2c.js';
 import wasmBinaryUrl from './wasm2c.wasm?url';
+import { findBoilerplate, parseTemplates, type TemplateBlock } from './boilerplate';
 import type {
   ConvertResult,
   FeatureInfo,
@@ -17,14 +18,22 @@ const encoder = new TextEncoder();
  * bytes (possible via a module's names section) survives the trip intact.
  */
 export class Wasm2cRunner {
-  private constructor(private readonly mod: Wasm2cWasmModule) {}
+  private constructor(
+    private readonly mod: Wasm2cWasmModule,
+    /** wasm2c's fixed scaffolding; read once, it never changes. */
+    private readonly templates: TemplateBlock[],
+  ) {}
 
   static async load(): Promise<Wasm2cRunner> {
     const mod = await createWasm2c({
       // Vite fingerprints the .wasm, so the default sibling lookup would miss.
       locateFile: (path) => (path.endsWith('.wasm') ? wasmBinaryUrl : path),
     });
-    return new Wasm2cRunner(mod);
+    const runner = new Wasm2cRunner(mod, []);
+    return new Wasm2cRunner(
+      mod,
+      parseTemplates(runner.readCString(mod._w2c_templates())),
+    );
   }
 
   /** Every feature wabt knows about, straight from its feature.def. */
@@ -93,12 +102,14 @@ export class Wasm2cRunner {
       const files: OutputFile[] = [];
       const count = this.mod._w2c_file_count();
       for (let i = 0; i < count; i++) {
+        const text = this.readBytes(
+          this.mod._w2c_file_text(i),
+          this.mod._w2c_file_size(i),
+        );
         files.push({
           name: this.readCString(this.mod._w2c_file_name(i)),
-          text: this.readBytes(
-            this.mod._w2c_file_text(i),
-            this.mod._w2c_file_size(i),
-          ),
+          text,
+          boilerplate: findBoilerplate(text, this.templates),
         });
       }
 

@@ -71,3 +71,9 @@ export const Warning = () => (
     <circle cx="12" cy="17.4" r="0.6" fill="currentColor" />
   </svg>
 );
+export const Focus = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 4h4M4 4v4M20 4h-4M20 4v4M4 20h4M4 20v-4M20 20h-4M20 20v-4" />
+    <path d="M8 12h8" />
+  </svg>
+);

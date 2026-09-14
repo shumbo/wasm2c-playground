@@ -664,6 +664,31 @@ code {
   display: grid;
 }
 
+/* The stand-in for a folded run of wasm2c scaffolding. */
+.fold-placeholder {
+  display: inline-block;
+  padding: 0 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  user-select: none;
+}
+
+.fold-placeholder::before {
+  content: '⋯ ';
+  color: var(--text-faint);
+}
+
+.fold-placeholder:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* Dim the C while it no longer matches the WAT in the editor. */
 .output--stale {
   opacity: 0.45;

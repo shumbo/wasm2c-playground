@@ -242,6 +242,78 @@ console.log('errors:');
 }
 
 console.log();
+console.log('boilerplate detection:');
+{
+  const { parseTemplates, findBoilerplate, countBoilerplateLines } = await import(
+    pathToFileURL(join(root, 'src/core/boilerplate.ts')).href
+  );
+  const templates = parseTemplates(readCString(mod._w2c_templates()));
+  check('templates parse', templates.length === 6, templates.map((t) => t.name).join(','));
+  check(
+    'every template has text',
+    templates.every((t) => t.text.length > 0),
+  );
+
+  // wasm2c writes each template verbatim, so the whole blob must be findable.
+  for (const [label, wat, features] of [
+    ['plain', EXAMPLES[0].wat, DEFAULT_FEATURES],
+    ['simd', EXAMPLES[7].wat, DEFAULT_FEATURES],
+    ['threads', '(module (memory 1 1 shared) (func (export "f") (param i32) (result i32) local.get 0 i32.atomic.load))', [...DEFAULT_FEATURES, 'threads']],
+  ]) {
+    const result = convert(wat, { features });
+    if (!result.ok) {
+      check(`${label}: converts`, false, result.error.split('\n')[0]);
+      continue;
+    }
+    const source = result.files[0];
+    const total = source.text.split('\n').length;
+    const ranges = findBoilerplate(source.text, templates);
+    const hidden = countBoilerplateLines(ranges);
+
+    check(`${label}: finds the scaffolding`, hidden > 0, `${hidden} lines`);
+    check(
+      `${label}: scaffolding is most of the file`,
+      hidden / total > 0.85,
+      `${hidden}/${total}`,
+    );
+    check(
+      `${label}: ranges stay inside the file`,
+      ranges.every((r) => r.from >= 1 && r.to <= total && r.from <= r.to),
+      JSON.stringify(ranges),
+    );
+    check(
+      `${label}: ranges do not overlap`,
+      ranges.every((r, i) => i === 0 || ranges[i - 1].to < r.from),
+      JSON.stringify(ranges),
+    );
+
+    // What is left must be the module's own code, not scaffolding.
+    const lines = source.text.split('\n');
+    const kept = lines.filter(
+      (_, i) => !ranges.some((r) => i + 1 >= r.from && i + 1 <= r.to),
+    );
+    check(
+      `${label}: the remainder holds the module code`,
+      kept.some((line) => line.includes('w2c_module')),
+    );
+    check(
+      `${label}: the remainder drops the runtime macros`,
+      !kept.some((line) => line.includes('#define MEM_ADDR')),
+    );
+  }
+
+  const simdOff = convert(EXAMPLES[0].wat, { features: DEFAULT_FEATURES });
+  const simdOn = convert(EXAMPLES[7].wat, { features: DEFAULT_FEATURES });
+  const labelsFor = (r) => findBoilerplate(r.files[0].text, templates).map((x) => x.label);
+  check(
+    'SIMD helpers are only detected when emitted',
+    !labelsFor(simdOff).includes('SIMD helpers') &&
+      labelsFor(simdOn).includes('SIMD helpers'),
+    `${labelsFor(simdOff)} vs ${labelsFor(simdOn)}`,
+  );
+}
+
+console.log();
 console.log('feature table:');
 {
   const table = readCString(mod._w2c_all_features())

@@ -17,16 +17,26 @@ import { OptionsPanel } from './components/OptionsPanel';
 import { Popover } from './components/Popover';
 import { SplitPane } from './components/SplitPane';
 import { WatEditor } from './components/WatEditor';
-import { Book, Check, ChevronDown, Copy, Download, Link, Moon, Sliders, Sun, Warning } from './components/icons';
+import { Book, Check, ChevronDown, Copy, Download, Focus, Link, Moon, Sliders, Sun, Warning } from './components/icons';
 
 import { DEFAULT_EXAMPLE, EXAMPLES } from './examples';
 import { firstErrorMessage, parseDiagnostics } from './lib/diagnostics';
 import { downloadBytes, downloadText } from './lib/download';
+import { countBoilerplateLines } from './core/boilerplate';
 import { countLines, formatBytes, formatDuration } from './lib/format';
 import { decodeState, encodeState } from './lib/share';
 import { applyTheme, readTheme, type ThemeChoice } from './lib/theme';
 
 const CONVERT_DEBOUNCE_MS = 250;
+const FOCUS_KEY = 'wasm2c-playground:focus';
+
+function readFocusPreference(): boolean {
+  try {
+    return localStorage.getItem(FOCUS_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
 
 type Status =
   | { kind: 'loading' }
@@ -45,6 +55,9 @@ export default function App() {
   const [converting, setConverting] = useState(false);
   const [activeFile, setActiveFile] = useState(0);
   const [theme, setTheme] = useState<ThemeChoice>(readTheme);
+  // Almost every line wasm2c emits is fixed runtime scaffolding, so the
+  // module's own code is the useful default view.
+  const [focusModule, setFocusModule] = useState(readFocusPreference);
 
   const client = useRef<Wasm2cClient | null>(null);
   // Guards against an older conversion landing after a newer one.
@@ -53,6 +66,14 @@ export default function App() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FOCUS_KEY, String(focusModule));
+    } catch {
+      // Private browsing; the preference just won't persist.
+    }
+  }, [focusModule]);
 
   // Restore a shared link before the first conversion runs, so the URL wins
   // over the default example.
@@ -139,6 +160,7 @@ export default function App() {
   }, [files.length, activeFile]);
 
   const current = files[Math.min(activeFile, Math.max(files.length - 1, 0))];
+  const hiddenLines = current ? countBoilerplateLines(current.boilerplate) : 0;
 
   const diagnostics: Diagnostic[] = useMemo(() => {
     if (!result || result.ok) {
@@ -287,6 +309,20 @@ export default function App() {
                 </div>
                 <div className="pane__actions">
                   {stale && <span className="pane__stale">stale</span>}
+                  <button
+                    type="button"
+                    className={`button button--icon${focusModule ? ' button--active' : ''}`}
+                    aria-pressed={focusModule}
+                    title={
+                      hiddenLines > 0
+                        ? `${focusModule ? 'Show' : 'Hide'} ${hiddenLines} lines of wasm2c scaffolding`
+                        : 'Hide wasm2c scaffolding'
+                    }
+                    aria-label="Hide wasm2c scaffolding"
+                    onClick={() => setFocusModule((value) => !value)}
+                  >
+                    <Focus />
+                  </button>
                   <CopyButton text={current?.text ?? ''} disabled={!current} />
                   <button
                     type="button"
@@ -313,7 +349,12 @@ export default function App() {
 
               {current ? (
                 <div className={`output${stale ? ' output--stale' : ''}`}>
-                  <CodeViewer value={current.text} resetKey={current.name} />
+                  <CodeViewer
+                    value={current.text}
+                    boilerplate={current.boilerplate}
+                    focus={focusModule}
+                    resetKey={current.name}
+                  />
                 </div>
               ) : (
                 <div className="placeholder">
@@ -326,7 +367,12 @@ export default function App() {
       )}
 
       <footer className="statusbar">
-        <StatusText status={status} converting={converting} result={result} />
+        <StatusText
+          status={status}
+          converting={converting}
+          result={result}
+          focusModule={focusModule}
+        />
         <div className="statusbar__spacer" />
         {shown && (
           <button
@@ -357,10 +403,12 @@ function StatusText({
   status,
   converting,
   result,
+  focusModule,
 }: {
   status: Status;
   converting: boolean;
   result: ConvertResult | null;
+  focusModule: boolean;
 }) {
   if (status.kind === 'loading') {
     return <span className="statusbar__state statusbar__state--busy">Loading wasm2c…</span>;
@@ -380,10 +428,17 @@ function StatusText({
   }
   const total = result.files.reduce((sum, file) => sum + file.text.length, 0);
   const lines = result.files.reduce((sum, file) => sum + countLines(file.text), 0);
+  const scaffolding = result.files.reduce(
+    (sum, file) => sum + countBoilerplateLines(file.boilerplate),
+    0,
+  );
   return (
     <span className="statusbar__state statusbar__state--ok">
-      {result.files.length} file{result.files.length === 1 ? '' : 's'} · {lines} lines ·{' '}
-      {formatBytes(total)} · {formatDuration(result.durationMs)}
+      {result.files.length} file{result.files.length === 1 ? '' : 's'} ·{' '}
+      {focusModule && scaffolding > 0
+        ? `${lines - scaffolding} module lines (${scaffolding} scaffolding hidden)`
+        : `${lines} lines`}{' '}
+      · {formatBytes(total)} · {formatDuration(result.durationMs)}
     </span>
   );
 }
