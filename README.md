@@ -24,8 +24,11 @@ no backend, nothing is uploaded, and the site is a pile of static files.
 - **The actual wasm2c options.** Module name (`-n`), number of output files
   (`--num-outputs`, which adds the shared `-impl.h`), debug names, and the
   feature flags wasm2c accepts.
+- **Nothing gets lost.** What you were editing, and the options you set, come
+  back after a reload — kept in `localStorage`, never sent anywhere.
 - **Shareable links.** The Share button packs the module and options into the
-  URL fragment, deflated.
+  URL fragment, deflated. A link wins over the saved draft, whether you open it
+  in a new tab or paste it into one that is already running.
 - **The binary too.** The assembled `.wasm` is downloadable from the status bar.
 
 ## Running it

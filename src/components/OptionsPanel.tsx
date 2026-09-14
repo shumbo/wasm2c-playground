@@ -1,5 +1,5 @@
 import type { FeatureInfo, Wasm2cOptions } from '../core/types';
-import { DEFAULT_OPTIONS } from '../core/types';
+import { DEFAULT_OPTIONS, MAX_OUTPUTS } from '../core/types';
 
 interface OptionsPanelProps {
   options: Wasm2cOptions;
@@ -45,11 +45,11 @@ export function OptionsPanel({ options, features, onChange }: OptionsPanelProps)
             className="field__input"
             type="number"
             min={1}
-            max={32}
+            max={MAX_OUTPUTS}
             value={options.numOutputs}
             onChange={(event) => {
               const value = Number(event.target.value);
-              set('numOutputs', Number.isFinite(value) ? Math.min(Math.max(value, 1), 32) : 1);
+              set('numOutputs', Number.isFinite(value) ? Math.min(Math.max(value, 1), MAX_OUTPUTS) : 1);
             }}
           />
           <span className="field__hint">

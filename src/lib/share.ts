@@ -1,4 +1,4 @@
-import { DEFAULT_OPTIONS, type Wasm2cOptions } from '../core/types';
+import { DEFAULT_OPTIONS, normalizeOptions, type Wasm2cOptions } from '../core/types';
 
 export interface SharedState {
   wat: string;
@@ -97,17 +97,12 @@ export async function decodeState(fragment: string): Promise<SharedState | null>
     }
     return {
       wat: payload.wat,
-      options: {
-        moduleName: payload.name ?? DEFAULT_OPTIONS.moduleName,
-        features: Array.isArray(payload.features)
-          ? payload.features
-          : DEFAULT_OPTIONS.features,
-        numOutputs:
-          Number.isInteger(payload.outputs) && payload.outputs! > 0
-            ? payload.outputs!
-            : DEFAULT_OPTIONS.numOutputs,
-        debugNames: payload.debugNames ?? DEFAULT_OPTIONS.debugNames,
-      },
+      options: normalizeOptions({
+        moduleName: payload.name,
+        features: payload.features,
+        numOutputs: payload.outputs,
+        debugNames: payload.debugNames,
+      }),
     };
   } catch {
     return null;

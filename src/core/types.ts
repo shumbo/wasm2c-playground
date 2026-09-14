@@ -69,3 +69,37 @@ export const DEFAULT_OPTIONS: Wasm2cOptions = {
   numOutputs: 1,
   debugNames: true,
 };
+
+/** The UI caps this; a stale or hand-crafted value must not get past it. */
+export const MAX_OUTPUTS = 32;
+
+/**
+ * Coerces an untrusted option bag into a usable one, field by field.
+ *
+ * Both sources of saved state — a shared URL and localStorage — can be stale
+ * or hand-edited, so neither is trusted: anything missing or malformed falls
+ * back to the default rather than reaching the converter.
+ */
+export function normalizeOptions(raw: unknown): Wasm2cOptions {
+  const input = (raw ?? {}) as Partial<Record<keyof Wasm2cOptions, unknown>>;
+
+  const numOutputs = Number(input.numOutputs);
+  const features = Array.isArray(input.features)
+    ? input.features.filter((value): value is string => typeof value === 'string')
+    : null;
+
+  return {
+    moduleName:
+      typeof input.moduleName === 'string'
+        ? input.moduleName
+        : DEFAULT_OPTIONS.moduleName,
+    features: features ?? DEFAULT_OPTIONS.features,
+    numOutputs: Number.isInteger(numOutputs)
+      ? Math.min(Math.max(numOutputs, 1), MAX_OUTPUTS)
+      : DEFAULT_OPTIONS.numOutputs,
+    debugNames:
+      typeof input.debugNames === 'boolean'
+        ? input.debugNames
+        : DEFAULT_OPTIONS.debugNames,
+  };
+}

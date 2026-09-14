@@ -24,10 +24,12 @@ import { firstErrorMessage, parseDiagnostics } from './lib/diagnostics';
 import { downloadBytes, downloadText } from './lib/download';
 import { countBoilerplateLines } from './core/boilerplate';
 import { countLines, formatBytes, formatDuration } from './lib/format';
+import { loadDraft, saveDraft } from './lib/persist';
 import { decodeState, encodeState } from './lib/share';
 import { applyTheme, readTheme, type ThemeChoice } from './lib/theme';
 
 const CONVERT_DEBOUNCE_MS = 250;
+const DRAFT_SAVE_DEBOUNCE_MS = 500;
 const FOCUS_KEY = 'wasm2c-playground:focus';
 
 function readFocusPreference(): boolean {
@@ -44,8 +46,16 @@ type Status =
   | { kind: 'fatal'; message: string };
 
 export default function App() {
-  const [wat, setWat] = useState(DEFAULT_EXAMPLE.wat);
-  const [options, setOptions] = useState<Wasm2cOptions>(DEFAULT_OPTIONS);
+  // A shared link outranks the saved draft, but it decodes asynchronously, so
+  // only seed from storage when there is no fragment to wait for. Otherwise
+  // the draft would flash on screen before the shared module replaced it.
+  const [initialDraft] = useState(() =>
+    window.location.hash.length > 1 ? null : loadDraft(),
+  );
+  const [wat, setWat] = useState(() => initialDraft?.wat ?? DEFAULT_EXAMPLE.wat);
+  const [options, setOptions] = useState<Wasm2cOptions>(
+    () => initialDraft?.options ?? DEFAULT_OPTIONS,
+  );
   const [features, setFeatures] = useState<FeatureInfo[]>([]);
   const [status, setStatus] = useState<Status>({ kind: 'loading' });
   const [result, setResult] = useState<ConvertResult | null>(null);
@@ -76,8 +86,17 @@ export default function App() {
   }, [focusModule]);
 
   // Restore a shared link before the first conversion runs, so the URL wins
-  // over the default example.
+  // over the default example and the saved draft.
   const [restored, setRestored] = useState(false);
+
+  const applyFragment = useCallback(async (fragment: string) => {
+    const state = await decodeState(fragment);
+    if (state) {
+      setWat(state.wat);
+      setOptions(state.options);
+    }
+  }, []);
+
   useEffect(() => {
     const fragment = window.location.hash.slice(1);
     if (!fragment) {
@@ -85,20 +104,29 @@ export default function App() {
       return;
     }
     let cancelled = false;
-    decodeState(fragment).then((state) => {
-      if (cancelled) {
-        return;
+    applyFragment(fragment).finally(() => {
+      if (!cancelled) {
+        setRestored(true);
       }
-      if (state) {
-        setWat(state.wat);
-        setOptions(state.options);
-      }
-      setRestored(true);
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyFragment]);
+
+  // Pasting a share link into an already-open tab only changes the fragment,
+  // which is a same-document navigation -- nothing remounts, so the link has
+  // to be picked up here.
+  useEffect(() => {
+    const onHashChange = () => {
+      const fragment = window.location.hash.slice(1);
+      if (fragment) {
+        void applyFragment(fragment);
+      }
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [applyFragment]);
 
   useEffect(() => {
     const instance = new Wasm2cClient();
@@ -117,6 +145,19 @@ export default function App() {
       client.current = null;
     };
   }, []);
+
+  // Gated on `restored` so the default example can't overwrite the saved
+  // draft in the moment before a shared fragment finishes decoding.
+  useEffect(() => {
+    if (!restored) {
+      return;
+    }
+    const timer = setTimeout(
+      () => saveDraft({ wat, options }),
+      DRAFT_SAVE_DEBOUNCE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [wat, options, restored]);
 
   useEffect(() => {
     if (status.kind !== 'ready' || !restored) {

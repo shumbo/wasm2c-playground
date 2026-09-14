@@ -185,6 +185,38 @@ const restoredWat = await fresh.locator('.editor').first().innerText();
 check('shared link restores the module', restoredWat.includes('call_indirect'), restoredWat.slice(0, 120));
 await fresh.close();
 
+// The draft survives a reload, and a shared link still outranks it.
+await page.goto(URL, { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('.statusbar__state--ok', { timeout: 30000 });
+await page.locator('.editor').first().click();
+await page.keyboard.press('ControlOrMeta+a');
+await page.keyboard.type('(module (func (export "persisted") (result i32) i32.const 4242))');
+await page.locator('button:has-text("Options")').click();
+await page.locator('.field__input[type="text"]').fill('kept');
+await page.keyboard.press('Escape');
+await page.waitForSelector('.tab:has-text("kept.c")', { timeout: 15000 });
+await page.waitForTimeout(800); // outlast the save debounce
+
+await page.reload({ waitUntil: 'domcontentloaded' });
+await page.waitForSelector('.statusbar__state--ok', { timeout: 30000 });
+const afterReload = await page.locator('.editor').first().innerText();
+check('WAT survives a reload', afterReload.includes('persisted'), afterReload.slice(0, 120));
+check(
+  'options survive a reload',
+  (await page.locator('.tab').first().innerText()) === 'kept.c',
+  await page.locator('.tab').first().innerText(),
+);
+check('reloaded module still converts', (await outputText()).includes('w2c_kept_persisted'));
+
+await page.goto(shareUrl, { waitUntil: 'domcontentloaded' });
+await page.waitForSelector('.statusbar__state--ok', { timeout: 30000 });
+const overDraft = await page.locator('.editor').first().innerText();
+check(
+  'a shared link outranks the saved draft',
+  overDraft.includes('call_indirect') && !overDraft.includes('persisted'),
+  overDraft.slice(0, 120),
+);
+
 // Narrow viewport.
 await page.setViewportSize({ width: 390, height: 780 });
 await page.waitForTimeout(400);
