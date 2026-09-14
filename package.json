@@ -1,0 +1,39 @@
+{
+  "name": "wasm2c-playground",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser playground for wabt's wasm2c: type WebAssembly, read the generated C.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "build:core": "./scripts/build-core.sh",
+    "test:core": "node scripts/test-core.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:core && npm run test:browser",
+    "test:browser": "node scripts/test-browser.mjs"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/lang-cpp": "^6.0.3",
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/legacy-modes": "^6.5.1",
+    "@codemirror/lint": "^6.9.7",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.8",
+    "@lezer/highlight": "^1.2.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "playwright": "^1.63.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}
