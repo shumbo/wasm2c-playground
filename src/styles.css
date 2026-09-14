@@ -27,7 +27,10 @@
   --warning: #b7791f;
   --ok: #2f7a45;
 
-  --line-active: #f7f7f5;
+  /* Must stay translucent: CodeMirror paints the selection layer behind the
+     content, so an opaque active line would hide the selection on the very
+     line you are selecting on. */
+  --line-active: rgba(24, 24, 18, 0.035);
   --selection: #d8d2fb;
   --selection-match: #ece8ff;
   --bracket-match: #e4dffa;
@@ -73,7 +76,7 @@
     --warning: #e0a94a;
     --ok: #6fca8c;
 
-    --line-active: #1b1b1f;
+    --line-active: rgba(255, 255, 255, 0.038);
     --selection: #34305c;
     --selection-match: #2a2740;
     --bracket-match: #322d55;
@@ -119,7 +122,7 @@
   --warning: #e0a94a;
   --ok: #6fca8c;
 
-  --line-active: #1b1b1f;
+  --line-active: rgba(255, 255, 255, 0.038);
   --selection: #34305c;
   --selection-match: #2a2740;
   --bracket-match: #322d55;

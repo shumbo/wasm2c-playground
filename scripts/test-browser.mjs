@@ -86,6 +86,72 @@ check('status bar reports size and timing', /\d+ (module )?lines/.test(status) &
 
 await shot(page, 'light.png');
 
+// Selection has to be visible, not merely present in the DOM: an opaque
+// active-line background used to paint over it on the cursor's own line, and
+// drawSelection() used to suppress the native one in the read-only pane.
+// Comparing pixels before and after extending a selection is the only check
+// that actually catches that.
+await page.addStyleTag({
+  content: '.cm-cursor, .cm-dropCursor { display: none !important }',
+});
+
+// Compare only the content area: the gutter highlights natively even when the
+// text does not, which would mask the very bug this is guarding against.
+async function selectionChangesContentPixels(pane, prepare, select) {
+  await prepare();
+  await page.waitForTimeout(120);
+  const content = pane.locator('.cm-content');
+  const before = await content.screenshot({ animations: 'disabled' });
+  await select();
+  await page.waitForTimeout(150);
+  const after = await content.screenshot({ animations: 'disabled' });
+  return !before.equals(after);
+}
+
+const editorPane = page.locator('.editor').first();
+const outputPane = page.locator('.editor').nth(1);
+
+// An opaque active-line background used to paint over the selection on the
+// cursor's own line, so drag within one line and keep the cursor there.
+{
+  const line = editorPane.locator('.cm-line').nth(2);
+  check(
+    'selection is visible on the cursor line in the editor',
+    await selectionChangesContentPixels(
+      editorPane,
+      () => line.click(),
+      async () => {
+        const box = await line.boundingBox();
+        const y = box.y + box.height / 2;
+        await page.mouse.move(box.x + 2, y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + 2 + Math.min(box.width - 4, 160), y, { steps: 8 });
+        await page.mouse.up();
+      },
+    ),
+  );
+}
+
+// drawSelection() used to suppress the browser's native selection here while
+// drawing none of its own, so Select All lit up the gutter and nothing else.
+check(
+  'selection is visible in the output pane',
+  await selectionChangesContentPixels(
+    outputPane,
+    () => outputPane.locator('.cm-line', { hasText: '#include' }).first().click(),
+    () => page.keyboard.press('ControlOrMeta+a'),
+  ),
+);
+
+check(
+  'active line stays translucent so it cannot mask the selection',
+  await page.evaluate(() => {
+    const el = document.querySelector('.cm-editor .cm-activeLine');
+    const bg = el && getComputedStyle(el).backgroundColor;
+    return Boolean(bg && /rgba\([^)]*,\s*0?\.\d+\s*\)/.test(bg));
+  }),
+);
+
 // Focus mode: the scaffolding folds away behind placeholders.
 const folds = await page.locator('.fold-placeholder').allTextContents();
 check('scaffolding is folded by default', folds.length === 2, folds.join(' | '));
