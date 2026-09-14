@@ -73,7 +73,7 @@ await page.goto(URL, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('.statusbar__state--ok', { timeout: 30000 });
 check('initial conversion succeeds', true);
 
-const tabs = await page.locator('.tab').allTextContents();
+const tabs = await page.locator('.tab--generated').allTextContents();
 check('emits module.c and module.h tabs', tabs.join(',') === 'module.c,module.h', tabs.join(','));
 
 const cOutput = await outputText();
@@ -219,7 +219,7 @@ check('module name prefixes the symbols', renamed.includes('w2c_demo'), renamed.
 await page.locator('button:has-text("Options")').click();
 await page.locator('.field__input[type="number"]').fill('3');
 await page.waitForSelector('.tab:has-text("demo-impl.h")', { timeout: 15000 });
-const multiTabs = await page.locator('.tab').allTextContents();
+const multiTabs = await page.locator('.tab--generated').allTextContents();
 check('multi-output splits the .c files', multiTabs.join(',') === 'demo_0.c,demo_1.c,demo_2.c,demo.h,demo-impl.h', multiTabs.join(','));
 await page.locator('.field__input[type="number"]').fill('1');
 await page.keyboard.press('Escape');
@@ -250,6 +250,85 @@ await fresh.waitForSelector('.statusbar__state--ok', { timeout: 30000 });
 const restoredWat = await fresh.locator('.editor').first().innerText();
 check('shared link restores the module', restoredWat.includes('call_indirect'), restoredWat.slice(0, 120));
 await fresh.close();
+
+// Runtime sources, and following a symbol into them. This is the whole point:
+// generated C names types like wasm_rt_funcref_table_t that wasm2c never emits.
+// An earlier check renamed the module; put it back so the tab names are the
+// defaults this block expects.
+await page.locator('button:has-text("Options")').click();
+await page.locator('.field__input[type="text"]').fill('module');
+await page.keyboard.press('Escape');
+await page.locator('button:has-text("Examples")').click();
+await page.locator('.menu__item:has-text("Table and call_indirect")').click();
+await page.waitForSelector('.tab:has-text("module.c")', { timeout: 15000 });
+await page.waitForSelector('.statusbar__state--ok', { timeout: 15000 });
+
+const allTabs = await page.locator('.tab').allTextContents();
+check('runtime sources appear as tabs', allTabs.includes('wasm-rt.h'), allTabs.join(','));
+check(
+  'generated files still come first',
+  allTabs.indexOf('module.c') < allTabs.indexOf('wasm-rt.h'),
+  allTabs.join(','),
+);
+check(
+  'exception runtime is hidden while the feature is off',
+  !allTabs.includes('wasm-rt-exceptions.h'),
+  allTabs.join(','),
+);
+
+const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+
+/*
+ * Click the word itself. A .cm-line box spans the whole pane, so estimating a
+ * character width from it lands on the indent; measuring the text node with a
+ * Range gives the real rectangle.
+ */
+async function followFrom(tabName, matchText, word) {
+  await page.locator('.tab', { hasText: tabName }).first().click();
+  await page.waitForTimeout(250);
+  const pane = page.locator('.editor').nth(1);
+  await pane.locator('.cm-line', { hasText: matchText }).first().scrollIntoViewIfNeeded();
+
+  const point = await pane.locator('.cm-content').evaluate((root, needle) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const at = node.textContent.indexOf(needle);
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + needle.length);
+      const box = range.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) {
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      }
+    }
+    return null;
+  }, word);
+  if (!point) return `could not locate "${word}"`;
+
+  await page.keyboard.down(modifier);
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.up(modifier);
+  await page.waitForTimeout(400);
+  return page.locator('.tab--active').first().innerText();
+}
+
+// module.h line 28 is `wasm_rt_funcref_table_t w2c_T0;`
+const landedOn = await followFrom('module.h', 'wasm_rt_funcref_table_t', 'wasm_rt_funcref_table_t');
+check('following a wasm_rt type opens wasm-rt.h', landedOn === 'wasm-rt.h', landedOn);
+check(
+  'it lands on the definition, not the top of the file',
+  await page.evaluate(() => {
+    const flash = document.querySelector('.cm-jumpFlash');
+    return flash ? flash.textContent.includes('wasm_rt_funcref_table_t') : false;
+  }),
+  await page.locator('.cm-jumpFlash').first().innerText().catch(() => 'no flashed line'),
+);
+
+// Following an #include should open that file too.
+const includeLanded = await followFrom('module.c', '#include "module.h"', 'module.h');
+check('following an #include opens that file', includeLanded === 'module.h', includeLanded);
 
 // The draft survives a reload, and a shared link still outranks it.
 await page.goto(URL, { waitUntil: 'domcontentloaded' });

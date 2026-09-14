@@ -17,6 +17,12 @@ no backend, nothing is uploaded, and the site is a pile of static files.
   placeholders (`⋯ 725 lines — wasm2c runtime declarations`), so a small module
   fits on one screen. Line numbers stay real, any block expands on click, and
   Copy and Download always give you the complete file.
+- **The runtime, not just the output.** wasm2c writes code against `wasm-rt.h`
+  but never emits it, so the generated C names types like
+  `wasm_rt_funcref_table_t` that are defined nowhere you can see. wabt's
+  runtime sources sit in the same tab strip, and Ctrl/Cmd-clicking an
+  identifier jumps to where it is defined — across the generated files and the
+  runtime alike. Ctrl/Cmd-clicking an `#include "..."` opens that file.
 - **Real diagnostics.** wabt's own error output, carets and all, with the
   offending range underlined in the editor. A broken edit doesn't wipe out the
   C you were reading — it's dimmed and marked stale until the module parses
@@ -96,6 +102,20 @@ The conversion mirrors the `wasm2c` tool exactly: the WAT is assembled to a
 binary first, then read back as IR, so the output matches what you would get
 from `wat2wasm foo.wat && wasm2c foo.wasm` rather than taking a shortcut
 through the text-format IR.
+
+### Looking up a symbol
+
+`src/core/symbols.ts` builds a name-to-location index by scanning for
+definitions line by line. It is regex-shaped rather than a C parser on purpose:
+the input is wasm2c's own output plus wabt's runtime headers, both consistently
+formatted, and a bad guess costs a wasted jump rather than a wrong answer. When
+a name matches more than one pattern, a type or macro wins; for a function, the
+declaration in a header beats the body in a `.c`, because `wasm-rt.h` is where
+the documentation comments live.
+
+The runtime sources under `src/core/runtime/` are vendored from the submodule
+by `scripts/build-core.sh`, with their Apache-2.0 headers intact, so the app
+still builds without a wabt checkout.
 
 ### Finding the scaffolding
 

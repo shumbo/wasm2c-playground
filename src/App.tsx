@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Diagnostic } from '@codemirror/lint';
 import { EditorState } from '@codemirror/state';
 
@@ -12,7 +12,7 @@ import {
 } from './core/types';
 import wabtVersion from './core/wabt-version.json';
 
-import { CodeViewer } from './components/CodeViewer';
+import { CodeViewer, type FollowRequest, type JumpTarget } from './components/CodeViewer';
 import { OptionsPanel } from './components/OptionsPanel';
 import { Popover } from './components/Popover';
 import { SplitPane } from './components/SplitPane';
@@ -23,6 +23,9 @@ import { DEFAULT_EXAMPLE, EXAMPLES } from './examples';
 import { firstErrorMessage, parseDiagnostics } from './lib/diagnostics';
 import { downloadBytes, downloadText } from './lib/download';
 import { countBoilerplateLines } from './core/boilerplate';
+import { runtimeFilesFor } from './core/runtime';
+import { buildSymbolIndex } from './core/symbols';
+import type { LineRange } from './core/types';
 import { countLines, formatBytes, formatDuration } from './lib/format';
 import { loadDraft, saveDraft } from './lib/persist';
 import { decodeState, encodeState } from './lib/share';
@@ -30,6 +33,20 @@ import { applyTheme, readTheme, type ThemeChoice } from './lib/theme';
 
 const CONVERT_DEBOUNCE_MS = 250;
 const DRAFT_SAVE_DEBOUNCE_MS = 500;
+const FOLLOW_MISS_MS = 2200;
+
+const MODIFIER_LABEL =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
+    ? '\u2318'
+    : 'Ctrl';
+
+interface Tab {
+  name: string;
+  text: string;
+  boilerplate: LineRange[];
+  kind: 'generated' | 'runtime';
+  summary?: string;
+}
 const FOCUS_KEY = 'wasm2c-playground:focus';
 
 function readFocusPreference(): boolean {
@@ -63,7 +80,9 @@ export default function App() {
   // reading; the pane dims it and says it's stale instead.
   const [lastGood, setLastGood] = useState<ConvertSuccess | null>(null);
   const [converting, setConverting] = useState(false);
-  const [activeFile, setActiveFile] = useState(0);
+  const [activeName, setActiveName] = useState<string | null>(null);
+  const [jumpTo, setJumpTo] = useState<JumpTarget | null>(null);
+  const [followMiss, setFollowMiss] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeChoice>(readTheme);
   // Almost every line wasm2c emits is fixed runtime scaffolding, so the
   // module's own code is the useful default view.
@@ -193,15 +212,79 @@ export default function App() {
 
   const shown = result?.ok ? result : lastGood;
   const stale = Boolean(result && !result.ok && lastGood);
-  const files = shown?.files ?? [];
-  useEffect(() => {
-    if (activeFile >= files.length) {
-      setActiveFile(0);
-    }
-  }, [files.length, activeFile]);
+  const generated = shown?.files ?? [];
 
-  const current = files[Math.min(activeFile, Math.max(files.length - 1, 0))];
+  // wabt's runtime sources sit alongside the generated files: wasm2c writes
+  // code against this interface but never emits it, so without them the C
+  // refers to types that are defined nowhere you can look.
+  const runtime = useMemo(() => runtimeFilesFor(options.features), [options.features]);
+
+  const tabs: Tab[] = useMemo(
+    () => [
+      ...generated.map((file) => ({ ...file, kind: 'generated' as const })),
+      ...runtime.map((file) => ({
+        name: file.name,
+        text: file.text,
+        boilerplate: [] as LineRange[],
+        kind: 'runtime' as const,
+        summary: file.summary,
+      })),
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shown, runtime],
+  );
+
+  // Tracked by name rather than index so renaming the module (module.c ->
+  // demo.c) falls back to the first generated file instead of holding an
+  // index that now points at something else.
+  const current =
+    (activeName ? tabs.find((tab) => tab.name === activeName) : undefined) ??
+    tabs.find((tab) => tab.kind === 'generated');
   const hiddenLines = current ? countBoilerplateLines(current.boilerplate) : 0;
+
+  // The runtime is fixed, so index it once; only the generated files change as
+  // you type, and their symbols take precedence over the runtime's.
+  const runtimeIndex = useMemo(
+    () => buildSymbolIndex(runtime.map((f) => ({ name: f.name, text: f.text }))),
+    [runtime],
+  );
+  const generatedIndex = useMemo(() => buildSymbolIndex(generated), [shown]);
+
+  const openTab = useCallback((name: string) => {
+    setActiveName(name);
+    setJumpTo(null);
+  }, []);
+
+  const handleFollow = useCallback(
+    (request: FollowRequest) => {
+      if (request.kind === 'include') {
+        if (tabs.some((tab) => tab.name === request.value)) {
+          openTab(request.value);
+        } else {
+          setFollowMiss(request.value);
+        }
+        return;
+      }
+      const hit = generatedIndex.get(request.value) ?? runtimeIndex.get(request.value);
+      if (!hit) {
+        setFollowMiss(request.value);
+        return;
+      }
+      setActiveName(hit.file);
+      // The nonce lets the same line be revisited; the line alone would not
+      // change and the reveal would not re-run.
+      setJumpTo({ line: hit.line, nonce: Date.now() });
+    },
+    [tabs, generatedIndex, runtimeIndex, openTab],
+  );
+
+  useEffect(() => {
+    if (!followMiss) {
+      return;
+    }
+    const timer = setTimeout(() => setFollowMiss(null), FOLLOW_MISS_MS);
+    return () => clearTimeout(timer);
+  }, [followMiss]);
 
   const diagnostics: Diagnostic[] = useMemo(() => {
     if (!result || result.ok) {
@@ -333,22 +416,37 @@ export default function App() {
           right={
             <section className="pane">
               <div className="pane__header pane__header--tabs">
-                <div className="tabs" role="tablist" aria-label="Generated files">
-                  {files.map((file, index) => (
-                    <button
-                      key={file.name}
-                      type="button"
-                      role="tab"
-                      aria-selected={index === activeFile}
-                      className={`tab${index === activeFile ? ' tab--active' : ''}`}
-                      onClick={() => setActiveFile(index)}
-                    >
-                      {file.name}
-                    </button>
+                <div className="tabs" role="tablist" aria-label="Output files">
+                  {tabs.map((tab, index) => (
+                    <Fragment key={tab.name}>
+                      {tab.kind === 'runtime' &&
+                        tabs[index - 1]?.kind === 'generated' && (
+                          <span className="tabs__divider" aria-hidden="true" />
+                        )}
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={tab.name === current?.name}
+                        title={tab.summary}
+                        className={`tab tab--${tab.kind}${
+                          tab.name === current?.name ? ' tab--active' : ''
+                        }`}
+                        onClick={() => openTab(tab.name)}
+                      >
+                        {tab.name}
+                      </button>
+                    </Fragment>
                   ))}
-                  {files.length === 0 && <span className="tab tab--placeholder">output</span>}
+                  {tabs.length === 0 && <span className="tab tab--placeholder">output</span>}
                 </div>
                 <div className="pane__actions">
+                  {followMiss ? (
+                    <span className="pane__miss" role="status">
+                      no definition for <code>{followMiss}</code>
+                    </span>
+                  ) : (
+                    <span className="pane__hint">{MODIFIER_LABEL}-click to jump</span>
+                  )}
                   {stale && <span className="pane__stale">stale</span>}
                   <button
                     type="button"
@@ -395,6 +493,8 @@ export default function App() {
                     boilerplate={current.boilerplate}
                     focus={focusModule}
                     resetKey={current.name}
+                    jumpTo={jumpTo}
+                    onFollow={handleFollow}
                   />
                 </div>
               ) : (

@@ -314,6 +314,89 @@ console.log('boilerplate detection:');
 }
 
 console.log();
+console.log('runtime sources and symbol lookup:');
+{
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const { buildSymbolIndex, wordAt, includeTarget } = await import(
+    pathToFileURL(join(root, 'src/core/symbols.ts')).href
+  );
+
+  const runtimeDir = join(root, 'src/core/runtime');
+  const runtime = readdirSync(runtimeDir).map((name) => ({
+    name,
+    text: readFileSync(join(runtimeDir, name), 'utf8'),
+  }));
+
+  check('runtime sources are vendored', runtime.length === 8, `${runtime.length} files`);
+  check(
+    'every runtime file keeps its licence header',
+    runtime.every((f) => f.text.includes('Apache License')),
+  );
+  check(
+    'the vendored copies match the submodule',
+    runtime.every((f) => {
+      try {
+        return (
+          readFileSync(join(root, 'third_party/wabt/wasm2c', f.name), 'utf8') === f.text
+        );
+      } catch {
+        return true; // submodule not checked out; nothing to compare against
+      }
+    }),
+  );
+
+  const index = buildSymbolIndex(runtime);
+  check('indexes a useful number of symbols', index.size > 100, `${index.size}`);
+
+  // Every one of these is a type a reader meets in generated C with no way to
+  // find it, which is the whole reason the index exists.
+  const expected = {
+    wasm_rt_funcref_table_t: 'wasm-rt.h',
+    wasm_rt_externref_table_t: 'wasm-rt.h',
+    wasm_rt_memory_t: 'wasm-rt.h',
+    wasm_rt_trap_t: 'wasm-rt.h',
+    wasm_rt_func_type_t: 'wasm-rt.h',
+    wasm_rt_funcref_t: 'wasm-rt.h',
+    wasm_rt_init: 'wasm-rt.h',
+    wasm_rt_grow_memory: 'wasm-rt.h',
+    wasm_rt_tag_t: 'wasm-rt-exceptions.h',
+  };
+  for (const [name, file] of Object.entries(expected)) {
+    const hit = index.get(name);
+    check(`${name} resolves into ${file}`, hit?.file === file, hit ? `${hit.file}:${hit.line}` : 'not found');
+  }
+
+  // A resolved location must actually name the symbol on that line.
+  const byName = new Map(runtime.map((f) => [f.name, f.text.split('\n')]));
+  check(
+    'every location really contains its symbol',
+    [...index.entries()].every(([name, loc]) =>
+      (byName.get(loc.file)?.[loc.line - 1] ?? '').includes(name),
+    ),
+    [...index.entries()]
+      .filter(([n, l]) => !(byName.get(l.file)?.[l.line - 1] ?? '').includes(n))
+      .slice(0, 3)
+      .map(([n, l]) => `${n} -> ${l.file}:${l.line}`)
+      .join('; '),
+  );
+
+  // Generated symbols win over the runtime, and resolve inside the module.
+  const generated = convert(EXAMPLES[4].wat).files;
+  const genIndex = buildSymbolIndex(generated);
+  check(
+    'generated symbols resolve in the generated files',
+    genIndex.get('w2c_module')?.file === 'module.h',
+    JSON.stringify(genIndex.get('w2c_module')),
+  );
+
+  check('wordAt reads an identifier', wordAt('a wasm_rt_memory_t* m;', 5) === 'wasm_rt_memory_t');
+  check('wordAt ignores whitespace', wordAt('   ', 1) === null);
+  check('wordAt ignores numbers', wordAt('x + 12345', 6) === null);
+  check('includeTarget reads a quoted include', includeTarget('#include "wasm-rt.h"') === 'wasm-rt.h');
+  check('includeTarget ignores system includes', includeTarget('#include <stdint.h>') === null);
+}
+
+console.log();
 console.log('feature table:');
 {
   const table = readCString(mod._w2c_all_features())
