@@ -86,6 +86,24 @@ check('status bar reports size and timing', /\d+ (module )?lines/.test(status) &
 
 await shot(page, 'light.png');
 
+// Writing assistants must stay out of the code editor.
+check(
+  'editor opts out of Grammarly',
+  await page.evaluate(() => {
+    const content = document.querySelector('.editor .cm-content');
+    return (
+      content?.getAttribute('data-gramm') === 'false' &&
+      content?.getAttribute('data-gramm_editor') === 'false' &&
+      content?.getAttribute('data-enable-grammarly') === 'false' &&
+      content?.getAttribute('spellcheck') === 'false'
+    );
+  }),
+  await page.evaluate(() => {
+    const c = document.querySelector('.editor .cm-content');
+    return c ? [...c.attributes].map((a) => `${a.name}=${a.value}`).join(' ') : 'no content';
+  }),
+);
+
 // Selection has to be visible, not merely present in the DOM: an opaque
 // active-line background used to paint over it on the cursor's own line, and
 // drawSelection() used to suppress the native one in the read-only pane.

@@ -65,6 +65,16 @@ export function WatEditor({ value, diagnostics, onChange }: WatEditorProps) {
           editorTheme,
           highlighting,
           EditorView.lineWrapping,
+          // Keep writing assistants out of the code editor: they inject their
+          // own DOM into the contenteditable, which fights CodeMirror's view
+          // and puts squiggles under every WAT keyword. CodeMirror already
+          // sets spellcheck="false"; these are Grammarly's own opt-outs, old
+          // and new attribute names both.
+          EditorView.contentAttributes.of({
+            'data-gramm': 'false',
+            'data-gramm_editor': 'false',
+            'data-enable-grammarly': 'false',
+          }),
           editable.of(EditorView.editable.of(true)),
           keymap.of([
             ...closeBracketsKeymap,
